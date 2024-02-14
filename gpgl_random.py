@@ -15,33 +15,6 @@
 #             raise
 
 
-# class Win32PrinterConnection(PrinterConnection):
-#     job = Instance(object)
-
-#     def open(self):
-#         p = win32print.OpenPrinter(self.transport.config.printer)
-#         self.job = win32print.StartDocPrinter(
-#             p, 1, ("Inkcut job", None, "RAW"))
-#         win32print.StartPagePrinter(p)
-#         self.printer = p
-
-#         #: Sync
-#         self.transport.connected = True
-#         self.transport.protocol.connection_made()
-
-#     def write(self, data):
-#         super(Win32PrinterConnection, self).write(data)
-#         win32print.WritePrinter(self.printer, bytearray(data,'ascii'))
-
-#     def close(self):
-#         p = self.printer
-#         win32print.EndPagePrinter(p)
-#         win32print.EndDocPrinter(p)
-#         win32print.ClosePrinter(p)
-#         #: Sync
-#         self.transport.connected = False
-#         self.transport.protocol.connection_lost()
-
 
 # # -*- coding: utf-8 -*-
 # """
@@ -147,6 +120,112 @@ import time
 from warnings import warn
 
 filenameep = "test_gpgl.txt"
+
+
+import os, sys
+import win32print
+
+
+class Win32PrinterConnection():
+    def __init__(self, *args, **kw):
+        self.args = args
+        self.kw = kw
+        self.printer = None
+
+    def open(self):
+        printer_name = win32print.GetDefaultPrinter ()
+        print (printer_name)
+        p = win32print.OpenPrinter(printer_name)
+        self.job = win32print.StartDocPrinter(p, 1, ("Inkcut job", None, "RAW"))
+        win32print.StartPagePrinter(p)
+        self.printer = p
+
+        # #: Sync
+        # self.transport.connected = True
+        # self.transport.protocol.connection_made()
+
+    def write(self, data):
+        # super(Win32PrinterConnection, self).write(data)
+        win32print.WritePrinter(self.printer, bytearray(data,'ascii'))
+
+    def close(self):
+        p = self.printer
+        win32print.EndPagePrinter(p)
+        win32print.EndDocPrinter(p)
+        win32print.ClosePrinter(p)
+        #: Sync
+        # self.transport.connected = False
+        # self.transport.protocol.connection_lost()
+
+
+
+class GPGLProtocol(Win32PrinterConnection):
+    def connection_made(self):
+        self.write("H\x03")
+
+    def move(self, x, y, z, absolute=True):
+        self.write("%s%i,%i\x03"%('D' if z else 'M', x, y))
+
+    def set_velocity(self, v):
+        self.write('!%i\x03' % v)
+
+    def set_force(self, f):
+        self.write("FX%i,1\x03" % f)
+
+    def set_pen(self, p):
+        pass
+###3# arr = bytearray(string, 'ascii')
+
+
+
+# # -*- coding: utf-8 -*-
+# """
+# Created on Jul 25, 2015
+
+# @author: jrm
+# """
+# from atom.api import Instance, Float, Bool, Int
+# from inkcut.device.plugin import DeviceProtocol, Model
+# from inkcut.core.utils import log
+
+
+class HPGLProtocol(Win32PrinterConnection):
+    scale = (1021/90.0)
+
+    # def write(self, data):
+    #     if self.config.pad:
+    #         data += "\n"
+    #     super().write(data)
+
+    def connection_made(self):
+        #: Initialize in absoulte mode
+        self.write("IN;")
+
+    def move(self, x, y, z, absolute=True):
+        """ Move the given position. If absolute is true use a PR
+        otherwise use PA. Most of the chinese machines don't handle
+        negative values so absolute moves only works.
+        
+        """
+        x, y = int(x*self.scale), int(y*self.scale)
+        if absolute:
+            self.write("%s%i,%i;" % ('PD' if z else 'PU', x, y))
+        else:
+            self.write("PR%i,%i;" % (x, y))
+
+    def set_force(self, f):
+        self.write("FS%i; " % f)
+        
+    def set_velocity(self, v):
+        self.write("VS%i;" % v)
+        
+    def set_pen(self, p):
+        self.write("SP%i;" % p)
+        
+    def finish(self):
+        # Reinitialize
+        self.write("IN;")
+
 
 class GPGL_Command(object):
     Name = "__GPGL_Command__"
@@ -339,21 +418,21 @@ class Silhouette(object):
         self._position = None
         self.ep_out = None
     
-    def usbscan(self):
-        args = {"find_all": True, "idVendor": self.vendor_id}
-        if self.product_id:
-            args["idProduct"] = self.product_id
-        devs = usb.core.find(**args)
-        devs = list(devs)
-        if not devs:
-            msg = "Can not find any devices with vendor_id == %s" % self.vendor_id
-            raise SilhouetteException(msg)
-            # raise Exception("Sorry, no numbers below zero")
+    # def usbscan(self):
+    #     args = {"find_all": True, "idVendor": self.vendor_id}
+    #     if self.product_id:
+    #         args["idProduct"] = self.product_id
+    #     devs = usb.core.find(**args)
+    #     devs = list(devs)
+    #     if not devs:
+    #         msg = "Can not find any devices with vendor_id == %s" % self.vendor_id
+    #         raise SilhouetteException(msg)
+    #         # raise Exception("Sorry, no numbers below zero")
          
-        if len(devs) > 1:
-            msg = "There are multiple devices that match vendor_id == %s, using the first one in the list." % self.vendor_id
-            warn(msg)
-        return devs[0]
+    #     if len(devs) > 1:
+    #         msg = "There are multiple devices that match vendor_id == %s, using the first one in the list." % self.vendor_id
+    #         warn(msg)
+    #     return devs[0]
 
     def connect(self):
         # self.dev = self.usbscan()
@@ -381,7 +460,9 @@ class Silhouette(object):
         # assert self.ep_intr_in is not None
         
         # self.init()
-        self.ep_out = open(filenameep, "a")
+        self.ep_out = Win32PrinterConnection() #open(filenameep, "a")
+        
+        
         # self.ep_out.write("test\n")
         # self.ep_out.close()
 
@@ -396,6 +477,18 @@ class Silhouette(object):
             move = Move(*pos)
         self.send(move)
         self._position = Point(*pos)
+
+    def move_custom(self, x, y, rel=True):
+        # pos = Point(*list(pos))
+        # if self._position == pos:
+        #     return
+        # if rel:
+        #     rel_pos = pos - self._position
+        #     move = RelativeMove(*rel_pos)
+        # else:
+        move = Move(x,y)
+        self.send(move)
+        # self._position = Point(*pos)
 
     def get_position(self):
         return self._position
@@ -505,6 +598,7 @@ class Silhouette(object):
             #     self.wait()
         
         # self.ep_out = open(filenameep, 'a')
+        self.ep_out.open()
         self.ep_out.write(msg)
         self.ep_out.close()
 
@@ -518,7 +612,11 @@ class Silhouette(object):
 
 if __name__ == '__main__':
     _cutter = None
-    _cutter = Silhouette()
-    _cutter.connect()
-    # _cutter.speed = 1
-    _cutter.home()
+    # _cutter = Silhouette()
+    # _cutter.connect()
+    # # _cutter.speed = 1
+    # _cutter.home()
+    # _cutter.move_custom(-10,-20)
+    _cutter = GPGLProtocol()
+    _cutter.connection_made()
+    _cutter.move(10,20,0)
