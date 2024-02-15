@@ -131,6 +131,7 @@ class Win32PrinterConnection():
         self.args = args
         self.kw = kw
         self.printer = None
+        # self.open()
 
     def open(self):
         printer_name = win32print.GetDefaultPrinter ()
@@ -145,8 +146,12 @@ class Win32PrinterConnection():
         # self.transport.protocol.connection_made()
 
     def write(self, data):
+        self.open()
         # super(Win32PrinterConnection, self).write(data)
-        win32print.WritePrinter(self.printer, bytearray(data,'ascii'))
+        data_out = bytearray(data,'ascii')
+        print(data_out)
+        win32print.WritePrinter(self.printer,  data_out)
+        self.close()
 
     def close(self):
         p = self.printer
@@ -190,7 +195,7 @@ class GPGLProtocol(Win32PrinterConnection):
 
 
 class HPGLProtocol(Win32PrinterConnection):
-    scale = (1021/90.0)
+    scale = 40 #(1021/90.0)
 
     # def write(self, data):
     #     if self.config.pad:
@@ -200,6 +205,10 @@ class HPGLProtocol(Win32PrinterConnection):
     def connection_made(self):
         #: Initialize in absoulte mode
         self.write("IN;")
+
+    def home(self):
+        #: Initialize in absoulte mode
+        self.write("H;")
 
     def move(self, x, y, z, absolute=True):
         """ Move the given position. If absolute is true use a PR
@@ -609,6 +618,7 @@ class Silhouette(object):
             # if block: 
             #     self.wait()
 
+import time
 
 if __name__ == '__main__':
     _cutter = None
@@ -619,4 +629,21 @@ if __name__ == '__main__':
     # _cutter.move_custom(-10,-20)
     _cutter = GPGLProtocol()
     _cutter.connection_made()
-    _cutter.move(10,20,0)
+    _cutter.move(8000,8000,0)
+    time.sleep(4)
+    _cutter.move(5000,5000,0)
+    # # time.sleep(5)
+    # _cutter.move(10000,10000,0)
+    # # time.sleep(5)
+    # _cutter.move(5000,10000,0)
+    # # time.sleep(5)/
+    # _cutter.move(5000,500,0)
+
+
+# if __name__ == '__main__':
+#     _cutter = None
+#     _cutter = HPGLProtocol()
+#     _cutter.connection_made()
+#     # _cutter.home()
+#     _cutter.move(1000,1000,0)
+#     _cutter.move(3000,3000,0)
